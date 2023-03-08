@@ -1,10 +1,21 @@
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget, QGridLayout, \
+from PyQt6.QtWidgets import QApplication, QLabel, QGridLayout, \
     QLineEdit, QPushButton, QComboBox, QMainWindow, QTableWidget, \
-    QTableWidgetItem, QDialog, QVBoxLayout, QToolBar, QStatusBar
+    QTableWidgetItem, QDialog, QVBoxLayout, QToolBar, QStatusBar, \
+    QMessageBox
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt
 import sys
 import sqlite3
+
+
+class DatabaseConnection:
+    def __init__(self, database_file="database.db"):
+        self.database_file = database_file
+    
+    def connect(self):
+        connection = sqlite3.connect(self.database_file)
+        return connection
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -20,9 +31,25 @@ class MainWindow(QMainWindow):
         add_student_action.triggered.connect(self.insert)
         file_menu_item.addAction(add_student_action)
 
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.exit_app)
+        file_menu_item.addAction(exit_action)
+
         search_action = QAction(QIcon("icons/search.png"), "Search", self)
         search_action.triggered.connect(self.search)
         edit_menu_item.addAction(search_action)
+
+
+
+        edit_action = QAction("Edit Record", self)
+        edit_action.triggered.connect(self.edit)
+        edit_menu_item.addAction(edit_action)
+
+        delete_action = QAction("Delete Record", self)
+        delete_action.triggered.connect(self.delete)
+        edit_menu_item.addAction(delete_action)
+
+
 
         about_action = QAction("About", self)
         about_action.triggered.connect(self.about)
@@ -50,7 +77,7 @@ class MainWindow(QMainWindow):
         self.table.cellClicked.connect(self.cell_clicked)
 
     def load_data(self):
-        connection = sqlite3.connect("database.db")
+        connection = DatabaseConnection().connect()
         result = connection.execute("SELECT * FROM students")
         self.table.setRowCount(0)
         for row_number, row_data, in enumerate(result):
@@ -92,11 +119,12 @@ class MainWindow(QMainWindow):
         dialog = SearchDialog()
         dialog.exec()
 
-    def sort(self):
-        pass
-
     def about(self):
         dialog = AboutDialog()
+        dialog.exec()
+    
+    def exit_app(self):
+        dialog = ExitApp()
         dialog.exec()
 
 
@@ -137,7 +165,7 @@ class InsertDialog(QDialog):
         course = self.course_name.itemText(self.course_name.currentIndex())
         mobile = self.mobile.text()
 
-        connection = sqlite3.connect("database.db")
+        connection = DatabaseConnection().connect()
         cursor = connection.cursor()
         cursor.execute("INSERT INTO students (name, course, mobile) VALUES (?, ?, ?)",
                        (name, course, mobile))
@@ -193,7 +221,7 @@ class EditDialog(QDialog):
         mobile = self.mobile.text()
         id = self.student_id
 
-        connection = sqlite3.connect("database.db")
+        connection = DatabaseConnection().connect()
         cursor = connection.cursor()
         cursor.execute("UPDATE students SET name = ?, course = ?, mobile = ? WHERE id = ?",
                        (name, course, mobile, id))
@@ -207,8 +235,51 @@ class DeleteDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Student Management System - Delete Student Record")
-        self.setFixedWidth(300)
-        self.setFixedHeight(300)
+
+        layout = QGridLayout()
+        confirmation = QLabel("Are you sure you want to delete the student record?")
+        yes = QPushButton("Yes")
+        no = QPushButton("No")
+
+        layout.addWidget(confirmation, 0, 0, 1, 2)
+        layout.addWidget(yes, 1, 0)
+        layout.addWidget(no, 1, 1)
+        self.setLayout(layout)
+
+        # Select student record to delete
+        index = main_window.table.currentRow()
+        self.student_name = main_window.table.item(index, 1)
+
+        yes.clicked.connect(self.delete_student)
+        no.clicked.connect(self.dont_delete_student)
+
+        self.setLayout(layout)
+    
+    def delete_student(self):
+        name = self.student_name.text()
+
+        connection = DatabaseConnection().connect()
+        cursor = connection.cursor()
+        cursor.execute("DELETE FROM students WHERE name = ?", (name,))
+        connection.commit()
+        cursor.close()
+        connection.close()
+        main_window.load_data()
+
+        self.close()
+
+        confirmation_widget = QMessageBox()
+        confirmation_widget.setWindowTitle("Success")
+        confirmation_widget.setText("The record was deleted successfully!")
+        confirmation_widget.exec()
+    
+    def dont_delete_student(self):
+        self.close()
+
+        confirmation_widget = QMessageBox()
+        confirmation_widget.setWindowTitle("Delete cancelled")
+        confirmation_widget.setText("No records were deleted.")
+        confirmation_widget.exec()
 
 
 class SearchDialog(QDialog):
@@ -234,34 +305,67 @@ class SearchDialog(QDialog):
 
     def search_student(self):
         name = self.student_name.text()
-        connection = sqlite3.connect("database.db")
+        connection = DatabaseConnection().connect()
         cursor = connection.cursor()
         result = cursor.execute("SELECT * FROM students WHERE name = ?", (name,))
         rows = list(result)
-        #print(rows)
         items = main_window.table.findItems(name, Qt.MatchFlag.MatchFixedString)
         for item in items:
-            #print(item)
             main_window.table.item(item.row(), 1).setSelected(True)
 
         cursor.close()
         connection.close()
 
 
-class SortDialog(QDialog):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Student Management System - Sort Student records")
-        self.setFixedWidth(300)
-        self.setFixedHeight(300)
-
-
-class AboutDialog(QDialog):
+class AboutDialog(QMessageBox):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Student Management System - About")
-        self.setFixedWidth(300)
-        self.setFixedHeight(300)
+
+        content = """
+This app is a 'Python Mega Course' (Udemy.com) product.
+Feel free to modify and reuse this app.
+        """
+        self.setText(content)
+
+
+class ExitApp(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Student Management System - Close")
+
+        layout = QGridLayout()
+        confirmation = QLabel("Are you sure you want to close the app?")
+        yes = QPushButton("Yes")
+        no = QPushButton("No")
+
+        layout.addWidget(confirmation, 0, 0, 1, 2)
+        layout.addWidget(yes, 1, 0)
+        layout.addWidget(no, 1, 1)
+        self.setLayout(layout)
+
+        yes.clicked.connect(self.exit_app_now)
+        no.clicked.connect(self.dont_exit_app)
+
+        self.setLayout(layout)
+
+    def exit_app_now(self):
+        self.close()
+
+        confirmation_widget = QMessageBox()
+        confirmation_widget.setWindowTitle("Goodbye!")
+        confirmation_widget.setText("Please visit again soon.")
+        confirmation_widget.exec()
+
+        sys.exit(app.exec())
+
+    def dont_exit_app(self):
+        self.close()
+
+        confirmation_widget = QMessageBox()
+        confirmation_widget.setWindowTitle("Welcome back")
+        confirmation_widget.setText("Plase stick around for a while.")
+        confirmation_widget.exec()
 
 
 app = QApplication(sys.argv)
@@ -269,17 +373,3 @@ main_window = MainWindow()
 main_window.show()
 main_window.load_data()
 sys.exit(app.exec())
-
-"""
-project requirements
-- view students
-    ID
-    name
-    course
-    phone #
-insert new records
-update records
-delete records
-search records
-sort records
-"""
